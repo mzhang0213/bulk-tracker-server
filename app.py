@@ -1,7 +1,12 @@
 import os
+from datetime import datetime
+import eventlet
+import logging
+eventlet.monkey_patch()
+logging.basicConfig(level=logging.DEBUG)
 
 import numpy as np
-from flask import Flask, render_template
+from flask import Flask, render_template, send_from_directory
 from flask import request
 from flask_socketio import SocketIO, emit
 
@@ -17,35 +22,23 @@ socketio = SocketIO(app)
 def hello_world():
     return "<p>Hello, World!</p>"
 
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+
+@app.route("/uploads/<path:filename>")
+def show_image(filename):
+    return send_from_directory(UPLOAD_FOLDER,filename)
+
 @socketio.on('message')
 def handle_message(data):
-    print('received message:', data)
+    logging.info('received message:', data)
     emit('response', {'data': 'Message received'})
 
 
 @app.get('/test')
 def test_get():
-    print("received")
+    logging.info("received")
     return str(int(request.args.get("hi")))
 
-@app.route("/calorie-image",methods=["POST"])
-def calorie_image_upload():
-    print("received")
-    print(request.files["image"])
-    if "image" not in request.files:
-        return {"message":"no file submitted"}
-    file = request.files["image"]
-    if file:
-        #file.save("./upload.png")
-        file.stream.seek(0)
-        buffer = file.stream.read()
-        text = scan_text(buffer)
-        emit("text", {"data": text})
-        return {"message":text}
-
-
-if __name__ == '__main__':
-    socketio.run(app)
 
 def scan_text(b):
     t1 = cv.getTickCount()
@@ -66,22 +59,55 @@ def scan_text(b):
     thresh = cv.adaptiveThreshold(denoise,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,11,2)
     #_,otsuThresh = cv.threshold(blur,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
 
-    orb = cv.ORB().create()
+    #orb = cv.ORB().create()
 
-    kp = orb.detect(thresh,None)
+    #kp = orb.detect(thresh,None)
 
-    kp, des = orb.compute(thresh, kp)
+    #kp, des = orb.compute(thresh, kp)
 
     #FIGURE A BETTER BOX DETECTOR THAN ORB
 
-    img2 = cv.drawKeypoints(gray, kp, None, color=(0,255,0), flags=0)
+    #img2 = cv.drawKeypoints(gray, kp, None, color=(0,255,0), flags=0)
 
-    cv.imwrite("keypoints.png", img2)
+    #cv.imwrite("keypoints.png", img2)
 
     #cv.imshow("pts",img2)
 
     final = thresh
-    cv.imwrite('final_frame.png', final)
-    print("finished")
-    print("elapsed: "+str((cv.getTickCount()-t1)/cv.getTickFrequency()))
-    return pytesseract.image_to_string(final)
+    rn = datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_file = f"scan-processed-{rn}.png"
+    cv.imwrite(os.path.join(UPLOAD_FOLDER,final_file), final)
+
+    logging.info("finished")
+    logging.info("elapsed: "+str((cv.getTickCount()-t1)/cv.getTickFrequency()))
+
+    return final_file,pytesseract.image_to_string(final)
+
+@app.route("/api/calorie-image",methods=["POST"])
+def calorie_image_upload():
+    logging.info("received")
+    logging.info(request.files["image"])
+    if "image" not in request.files:
+        return {"message":"no file submitted"}
+    file = request.files["image"]
+    if file:
+        rn = datetime.now().strftime("%Y%m%d_%H%M%S")
+        scan_file = f"scan-{rn}.png"
+        file.save(os.path.join(UPLOAD_FOLDER,scan_file))
+
+        file.stream.seek(0)
+        buffer = file.stream.read()
+        f_file, text = scan_text(buffer)
+
+        socketio.emit("scan_result", {
+            "result": text,
+            "scan_file": scan_file,
+            "final_file": f_file
+        })
+        return {"message":text}
+
+
+if __name__ == '__main__':
+    working_port = 3005
+    logging.info(f"server running at port {working_port}")
+    socketio.run(app, host='0.0.0.0', port=working_port)
