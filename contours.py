@@ -1,6 +1,7 @@
 from dis import distb
 from fileinput import close
 from tkinter.tix import INTEGER
+from typing import final
 
 import cv2 as cv
 import numpy as np
@@ -88,8 +89,8 @@ for contour in contours:
 
         #process to find 4 corners
         # 250606 note: this alg is largely inefficient calculating dists and a mean across n
-        #              and then looping over 2n again
-        #              even tho its tech O(n) its rly like 4*n and n doesnt get super duper large so yeah o well
+        #              and then looping over n + (small) k<n
+        #              even tho its tech O(n) its rly like 3*n and n doesnt get super duper large so yeah o well
         corner_start,corner_end = -1,-1
         corners = set()
         dists = []
@@ -101,9 +102,12 @@ for contour in contours:
         #plt.plot(dists, "ro")
         #plt.show()
 
-        for ind in range(1, len(pot_corners) * 2):
+        ind, offset = 0,0
+        finalized_offset = False
+        while ind < len(pot_corners)+offset+1:
             # i is the modded version to allow loopback of the loop and guarantee a full cycle where we hit every corner
             # ind is the actual loop, and its used when doing ind calc for accurate calcs w/o loopback issue
+            # +1 required cuz the alg works by running midpt calc when u reach i+1 (cuz it then calcs curr index - 1 for midpt)
             i = ind%len(pot_corners)
 
             #get the vector betw pts, then get their magnitude with linalg.norm
@@ -122,6 +126,10 @@ dist {curr_dist}''')
                     # if start == -1, then establish st point on encountering a large dist
                     corner_start=ind
                     print(f"starting at {corner_start}")
+
+                    finalized_offset=True
+                    offset=ind
+
                 else:
                     # now once you find another large dist, there will be a corner inside
                     # (ie if large dist and start != -1)
@@ -131,16 +139,15 @@ dist {curr_dist}''')
                     print(f"midpt at {midpt}")
 
                     corners.add(midpt)
+                    cv.circle(img, tuple(map(int,pot_corners[midpt])), 10, (255, 0, 0), -1)  # blue dot
+                    #cv.imwrite(f"corner added at {midpt}.png",img)
 
                     #   set start to i
                     corner_start = ind
                     print(f"start again at {i}")
+            ind+=1
             print()
 
-        for i in corners:
-            cv.circle(img, tuple(map(int,pot_corners[i])), 10, (255, 0, 0), -1)  # blue dot
-
-        print(np.median(dists))
 cv.drawContours(img, filtered, -1, (0,255,0), 2)
 #cv.imshow("edges",edges)
 cv.imshow("img",img)
