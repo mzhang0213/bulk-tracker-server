@@ -2,6 +2,9 @@ import os
 from datetime import datetime
 import eventlet
 import logging
+
+from object_detection import cut_to_object, get_main_object
+
 eventlet.monkey_patch()
 logging.basicConfig(level=logging.DEBUG)
 
@@ -40,17 +43,10 @@ def test_get():
     return str(int(request.args.get("hi")))
 
 
-def scan_text(b):
+def scan_text(img):
     t1 = cv.getTickCount()
 
-    arr = np.asarray(bytearray(b), dtype=np.uint8)
-
-    frame = cv.imdecode(arr, cv.IMREAD_COLOR)
-
-    #save and make sure
-    cv.imwrite("upload.png", frame)
-
-    gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
     #blur = cv.GaussianBlur(gray,(5,5),0)
 
@@ -58,20 +54,6 @@ def scan_text(b):
 
     thresh = cv.adaptiveThreshold(denoise,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,11,2)
     #_,otsuThresh = cv.threshold(blur,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
-
-    #orb = cv.ORB().create()
-
-    #kp = orb.detect(thresh,None)
-
-    #kp, des = orb.compute(thresh, kp)
-
-    #FIGURE A BETTER BOX DETECTOR THAN ORB
-
-    #img2 = cv.drawKeypoints(gray, kp, None, color=(0,255,0), flags=0)
-
-    #cv.imwrite("keypoints.png", img2)
-
-    #cv.imshow("pts",img2)
 
     final = thresh
     rn = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -95,9 +77,31 @@ def calorie_image_upload():
         scan_file = f"scan-{rn}.png"
         file.save(os.path.join(UPLOAD_FOLDER,scan_file))
 
+        # load image into buffer properly
         file.stream.seek(0)
         buffer = file.stream.read()
-        f_file, text = scan_text(buffer)
+
+        # buffer >> Mat
+        arr = np.asarray(bytearray(buffer), dtype=np.uint8)
+        img = cv.imdecode(arr, cv.IMREAD_COLOR)
+
+        #save initial img
+        cv.imwrite("upload.png", img)
+
+        # process to find edges and contours
+        f_file,text = "",""
+        pos_objs = get_main_object(img)
+        cv.drawContours(img, pos_objs, -1, (0,255,0), 2)
+        for obj in pos_objs:
+            cut_contour = cut_to_object(img, obj)
+            if cut_contour is None:
+                print("cut contour unable to be detected")
+                continue
+            else:
+                #for now, just run loop until you find an obj that works
+                f_file, text = scan_text(img)
+                break
+
 
         socketio.emit("scan_result", {
             "result": text,
