@@ -88,7 +88,6 @@ def calorie_image_upload():
         arr = np.asarray(bytearray(buffer), dtype=np.uint8)
         img = cv.imdecode(arr, cv.IMREAD_COLOR)
 
-
         # process to find edges and contours
         f_file,text = "",""
         pos_objs = get_main_object(img)
