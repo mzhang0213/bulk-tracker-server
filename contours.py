@@ -29,6 +29,21 @@ def getAngle(p1, p2, p3):
     deg = angle/np.pi*180 #convert to degrees
     return deg
 
+def cross2d(vec_a, vec_b):
+    return vec_a[0]*vec_b[1] - vec_a[1]*vec_b[0]
+
+def order_corners(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    s = np.sum(pts, axis=1)
+    d = np.diff(pts, axis=1)
+
+    rect[0] = pts[np.argmin(s)]  # top-left - min of x+y
+    rect[2] = pts[np.argmax(s)]  # bottom-right - max of x+y
+    rect[1] = pts[np.argmin(d)]  # top-right - min of x-y
+    rect[3] = pts[np.argmax(d)]  # bottom-left - max of x+y
+
+    return rect
+
 def around(value, target, thresh):
     #let thresh be a percent of error
     return target*(1 - thresh) <= value <= target*(1 + thresh)
@@ -92,7 +107,7 @@ for contour in contours:
         #              and then looping over n + (small) k<n
         #              even tho its tech O(n) its rly like 3*n and n doesnt get super duper large so yeah o well
         corner_start,corner_end = -1,-1
-        corners = set()
+        corner_inds = set()
         dists = []
         for i in range(1, len(pot_corners)):
             dists.append(np.linalg.norm(np.array(pot_corners[i]) - np.array(pot_corners[i - 1])))
@@ -138,7 +153,7 @@ dist {curr_dist}''')
                     midpt = int(((ind-1)+corner_start)/2)%len(pot_corners)
                     print(f"midpt at {midpt}")
 
-                    corners.add(midpt)
+                    corner_inds.add(midpt)
                     cv.circle(img, tuple(map(int,pot_corners[midpt])), 10, (255, 0, 0), -1)  # blue dot
                     #cv.imwrite(f"corner added at {midpt}.png",img)
 
@@ -147,6 +162,42 @@ dist {curr_dist}''')
                     print(f"start again at {i}")
             ind+=1
             print()
+
+        # given corners, flatten and push frame to these 4 corners
+        # using perspective/affine transformations, https://math.stackexchange.com/questions/13404/mapping-irregular-quadrilateral-to-a-rectangle
+
+        # find destination box
+        corner_inds = list(corner_inds) #REMEMBER: ITEMS IN CORNERS ARE INDEXES OF POT_CORNERS
+        corner_inds.sort()
+        corners = [pot_corners[i] for i in corner_inds]
+        corners = np.array(corners, dtype=np.float32)
+        corners = order_corners(corners)
+        if len(corners)!=4:
+            print("ERROR: LESS THAN 4 CORNERS WERE DETERMINED")
+        else:
+            u = corners[1] - corners[0]
+            v = corners[2] - corners[1]
+            w = corners[3] - corners[2]
+            a = corners[0] - corners[3]
+            print("u:", u)
+            print("v:", v)
+            print("w:", w)
+            print("a:", a)
+            print("corners:",corners)
+            #use the formula - it yields an aspect ratio length:width for the resized rectangle
+            ratio = (1/2)*(cross2d(u,v)+cross2d(w,a))/(np.linalg.norm(u)+np.linalg.norm(v)+np.linalg.norm(w)+np.linalg.norm(a))**2
+            print(ratio)
+
+            #compute destination coords
+            length = np.linalg.norm(u)
+            width = length/ratio
+            dst = np.array([[0.0,0.0],[length,0.0],[length,width],[0.0,width]], dtype=np.float32)
+            print(length,width)
+
+            #get transformation
+            M = cv.getPerspectiveTransform(corners, dst)
+            img_resized = cv.warpPerspective(img,M,(int(length),int(width)))
+            cv.imshow("transformed", img_resized)
 
 cv.drawContours(img, filtered, -1, (0,255,0), 2)
 #cv.imshow("edges",edges)
