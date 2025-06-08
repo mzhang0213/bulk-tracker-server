@@ -1,11 +1,6 @@
-from dis import distb
-from fileinput import close
-from tkinter.tix import INTEGER
-from typing import final
-
 import cv2 as cv
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
 
 def getAngle(p1, p2, p3):
@@ -209,10 +204,11 @@ def get_main_object(img):
 
     return pos_objs
 
+'''
 im = cv.imread("upload.png")
 
-#cv.imshow("edges",edges)
 cv.imshow("img",im)
 while 1:
     if cv.waitKey(1) == ord("q"):
         break
+'''

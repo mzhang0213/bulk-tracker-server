@@ -18,6 +18,7 @@ import pytesseract
 
 #run deployment cmd: gunicorn -w 4 -b 0.0.0.0 "app:app"
 #run tunnel: cloudflared tunnel run bulk-tunnel
+#run docker build: docker-compose up --build
 app = Flask(__name__)
 socketio = SocketIO(app)
 
@@ -73,6 +74,8 @@ def calorie_image_upload():
         return {"message":"no file submitted"}
     file = request.files["image"]
     if file:
+        #save initial img
+        #cv.imwrite("upload.png", img)
         rn = datetime.now().strftime("%Y%m%d_%H%M%S")
         scan_file = f"scan-{rn}.png"
         file.save(os.path.join(UPLOAD_FOLDER,scan_file))
@@ -85,8 +88,6 @@ def calorie_image_upload():
         arr = np.asarray(bytearray(buffer), dtype=np.uint8)
         img = cv.imdecode(arr, cv.IMREAD_COLOR)
 
-        #save initial img
-        cv.imwrite("upload.png", img)
 
         # process to find edges and contours
         f_file,text = "",""
