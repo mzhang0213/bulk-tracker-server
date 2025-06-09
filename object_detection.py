@@ -107,7 +107,7 @@ def cut_to_object(img, contour):
     for i in range(1, len(pot_corners)):
         dists.append(np.linalg.norm(np.array(pot_corners[i]) - np.array(pot_corners[i - 1])))
     dists.sort()
-    avg = np.mean(dists[0:int(len(dists) * 3 / 2)])
+    avg = np.mean(dists[0:int(len(dists) * 3 / 4)])
     # im p sure statistically, the outliers are so big that if we avg the lower 3 quartiles we are still chill
     #plt.plot(dists, "ro")
     #plt.show()
