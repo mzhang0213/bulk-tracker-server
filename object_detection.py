@@ -205,21 +205,34 @@ def get_main_object(img):
     output_files = []
 
     edges = cv.Canny(img,150,200)
-    output_files.append(saveimg_cv("edges",img))
+    output_files.append(saveimg_cv("edges",edges))
 
     contours, _ = cv.findContours(edges.copy(), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
     cv.drawContours(annotated,contours,-1,(0,255,0),2)
     output_files.append(saveimg_cv("all_contours",annotated))
 
+    all_objs = []
+    all_objs_areas = []
     pos_objs = []
     for c in contours:
         closed = cv.convexHull(c)
         closed_area = cv.contourArea(closed)
+        all_objs.append(closed)
+        all_objs_areas.append(closed_area)
+
         #for now, use 10e4; problems in future may arise where its necessary to access the top 5 or so biggest contours
         if closed_area > 10e4:
             pos_objs.append(closed)
+    if len(pos_objs)==0:
+        logging.info("WARN: no significantly large contours detected")
 
-    return pos_objs
+        #take the first 1 biggest objects instead
+        swaps=list(range(len(all_objs_areas)))
+        swaps.sort(key=lambda ind: all_objs_areas[ind], reverse=True)
+        for i in range(1):
+            pos_objs.append(all_objs[swaps[i]])
+
+    return pos_objs, output_files
 
 '''
 im = cv.imread("upload.png")

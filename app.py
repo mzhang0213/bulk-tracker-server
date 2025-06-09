@@ -73,7 +73,8 @@ def calorie_image_upload():
 
         # process to find edges and contours
         f_file,text = "",""
-        pos_objs = get_main_object(img)
+        pos_objs, main_obj_output = get_main_object(img)
+        for outfile in main_obj_output: output_files.append(outfile)
         cv.drawContours(img, pos_objs, -1, (0,255,0), 2)
 
         #IN THE FUTURE make this so that the object with most process text (that isnt whitespace) is dominant in being the final processed image
