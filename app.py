@@ -3,11 +3,12 @@ from datetime import datetime
 import eventlet
 import logging
 
-from object_detection import cut_to_object, get_main_object
-
 eventlet.monkey_patch()
 logging.basicConfig(level=logging.DEBUG)
 
+
+from object_detection import cut_to_object, get_main_object
+from utils import UPLOAD_FOLDER, saveimg_cv, scan_text
 import numpy as np
 from flask import Flask, render_template, send_from_directory
 from flask import request
@@ -26,7 +27,6 @@ socketio = SocketIO(app)
 def hello_world():
     return "<p>Hello, World!</p>"
 
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 
 @app.route("/uploads/<path:filename>")
 def show_image(filename):
@@ -44,30 +44,9 @@ def test_get():
     return str(int(request.args.get("hi")))
 
 
-def scan_text(img):
-    t1 = cv.getTickCount()
-
-    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-
-    #blur = cv.GaussianBlur(gray,(5,5),0)
-
-    denoise = cv.fastNlMeansDenoising(gray)
-
-    thresh = cv.adaptiveThreshold(denoise,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,11,2)
-    #_,otsuThresh = cv.threshold(blur,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
-
-    final = thresh
-    rn = datetime.now().strftime("%Y%m%d_%H%M%S")
-    final_file = f"scan-processed-{rn}.png"
-    cv.imwrite(os.path.join(UPLOAD_FOLDER,final_file), final)
-
-    logging.info("finished")
-    logging.info("elapsed: "+str((cv.getTickCount()-t1)/cv.getTickFrequency()))
-
-    return final_file,pytesseract.image_to_string(final)
-
 @app.route("/api/calorie-image",methods=["POST"])
 def calorie_image_upload():
+    output_files = []
     logging.info("received")
     logging.info(request.files["image"])
     if "image" not in request.files:
@@ -79,6 +58,10 @@ def calorie_image_upload():
         rn = datetime.now().strftime("%Y%m%d_%H%M%S")
         scan_file = f"scan-{rn}.png"
         file.save(os.path.join(UPLOAD_FOLDER,scan_file))
+        output_files.append({
+            "name":scan_file,
+            "scan_type":"original"
+        })
 
         # load image into buffer properly
         file.stream.seek(0)
@@ -92,23 +75,30 @@ def calorie_image_upload():
         f_file,text = "",""
         pos_objs = get_main_object(img)
         cv.drawContours(img, pos_objs, -1, (0,255,0), 2)
+
+        #IN THE FUTURE make this so that the object with most process text (that isnt whitespace) is dominant in being the final processed image
+        #IN THE FUTURE also include columns scanned
         for obj in pos_objs:
-            cut_contour = cut_to_object(img, obj)
+            cut_contour, cut_out_files = cut_to_object(img, obj)
+            for outfile in cut_out_files: output_files.append(outfile)
+
             if cut_contour is None:
                 print("cut contour unable to be detected")
                 continue
             else:
                 #for now, just run loop until you find an obj that works
-                f_file, text = scan_text(img)
+                output_files.append(saveimg_cv("resized",cut_contour))
+                f_file, text = scan_text(cut_contour)
+                output_files.append(f_file)
                 break
-
 
         socketio.emit("scan_result", {
             "result": text,
-            "scan_file": scan_file,
-            "final_file": f_file
+            "files":output_files
         })
         return {"message":text}
+
+
 
 
 if __name__ == '__main__':

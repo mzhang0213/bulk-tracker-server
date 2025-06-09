@@ -1,5 +1,11 @@
+import logging
+
 import cv2 as cv
 import numpy as np
+
+from utils import saveimg_cv
+
+
 #import matplotlib.pyplot as plt
 
 
@@ -36,23 +42,24 @@ def around(value, target, thresh):
     return target*(1 - thresh) <= value <= target*(1 + thresh)
 
 
-#filter out convex hull to get closed contours for accurate area
-#filter out area
-#go back and then fit a square to the accurate object contour
-#push the warped square to be straight - ie straighten it from a warped 3d object laying flat on 2d
-#re-adjust and re-rotate
-#then ocr
+#problem: given an object outlined with contour, enclose it accurately and set image window to its dimensions
+#1. filter out convex hull to get closed contours for accurate area
+#2. filter out areas for largest
+#3.
 def cut_to_object(img, contour):
-    #fit rectangle
-    #filtered.append(closed)
+    annotated = np.copy(img)
+    output_files = []
+
+    # resize current contour
     closed_pts = [i[0] for i in contour]
 
+    # tracking corners marked
     marked = [0 for i in closed_pts]
 
     for ind in range(2, len(closed_pts)+2):
         i = ind%len(closed_pts)
 
-        # POINT LABEL
+        # POINTS LABEL
         #cv.putText(img,str(closed_pts[i]),[closed_pts[i][0],closed_pts[i][1]+(30 if i%3==0 else (-30 if i%3==1 else 0))],cv.FONT_HERSHEY_PLAIN,1,(255,255,255))
         # DRAW COLORED LINES
         #cv.line(img,closed_pts[i-1],closed_pts[i],(255 if i%3==0 else 0,255 if i%3==1 else 0,255 if i%3==2 else 0),3)
@@ -60,30 +67,30 @@ def cut_to_object(img, contour):
         angle = getAngle(closed_pts[i-2],closed_pts[i-1],closed_pts[i])
         # ANGLE READOUT DISPLAY
         #cv.putText(img,str(angle)[:6],[closed_pts[i][0],closed_pts[i][1]+(30 if i%3==0 else (-30 if i%3==1 else 0))],cv.FONT_HERSHEY_PLAIN,1,(255,255,255))
-        #cv.imwrite(f"segment at {i}.png",img)
 
         print("x  y  angle")
         print(str(closed_pts[i][0]) + " " +
               str(closed_pts[i][1]) + " " +
               str(angle))
 
+        #mark points only if they are along an edge - ie a point that has ~180 degree angle
         if abs(angle-180)<10:
             print(f"marking {closed_pts[i]} and {closed_pts[i-1]} and {closed_pts[i-2]}")
             #mark the point center to the angle
             marked[i-1]=1
 
+    # points marked are in the middle of line segs, and
+    # all points not marked are parts of corners
+    # thus gather points NOT MARKED
     pot_corners = []
     for i in range(len(marked)):
         if marked[i] == 0:
-            # points marked are in the middle of line segs
-            # all points not marked are parts of corners
-            # thus gather points NOT MARKED
             pot_corners.append(closed_pts[i])
 
+    #draw circle on the potential points
     for i in range(len(pot_corners)):
         #cv.putText(img, str(pot_corners[i]), [pot_corners[i][0], pot_corners[i][1]+(30 if i%3==0 else (-30 if i%3==1 else 0))], cv.FONT_HERSHEY_PLAIN, 1, (255, 255, 255))
-        cv.circle(img, tuple(map(int, pot_corners[i])), 10, (0, 255, 255), -1)
-        #cv.imwrite(f"corner? at {i}.png",img)
+        cv.circle(annotated, tuple(map(int, pot_corners[i])), 10, (0, 255, 255), -1)
 
     print()
     print()
@@ -95,6 +102,8 @@ def cut_to_object(img, contour):
     corner_start,corner_end = -1,-1
     corner_inds = set()
     dists = []
+    #find distances between points to isolate those that are nearby
+    #find average distance as threshold for later use
     for i in range(1, len(pot_corners)):
         dists.append(np.linalg.norm(np.array(pot_corners[i]) - np.array(pot_corners[i - 1])))
     dists.sort()
@@ -111,18 +120,18 @@ def cut_to_object(img, contour):
         # +1 required cuz the alg works by running midpt calc when u reach i+1 (cuz it then calcs curr index - 1 for midpt)
         i = ind%len(pot_corners)
 
-        #get the vector betw pts, then get their magnitude with linalg.norm
+        #get the vector betw pts, then get their magnitude (length) with linalg.norm
         curr_dist = np.linalg.norm(np.array(pot_corners[i]) - np.array(pot_corners[i - 1]))
         print(
 f'''point {pot_corners[i]}
 dist {curr_dist}''')
 
-        #remove outlier distances to figure out the threshold
-        # WRONG: when we encounter small dist, its like 0.8 - 0.5 (curr_dist - lower_avg) --> less than 5 fo sho
-        # if the curr dist is small, then minus avg will guarantee negative
-            #means that 10 is lowk arbitrary and just needs to check for negative
-        # thus if its >5, then its a large dist
+        # FIND when distance between adj points is large in order to isolate groups of points at a corner
         if curr_dist - avg > 10:
+            # when we encounter small dist, its like 0.8 - 0.5 (curr_dist - avg) --> less than 5 fo sho
+            # if the curr dist is small, then minus avg will guarantee negative
+                #means that 10 is lowk arbitrary and just needs to check for negative
+            # thus if its >5, then its a large distance
             if corner_start==-1:
                 # if start == -1, then establish st point on encountering a large dist
                 corner_start=ind
@@ -139,9 +148,10 @@ dist {curr_dist}''')
                 midpt = int(((ind-1)+corner_start)/2)%len(pot_corners)
                 print(f"midpt at {midpt}")
 
+                # add calc'd corner to list of corners (tracked by index)
                 corner_inds.add(midpt)
-                cv.circle(img, tuple(map(int,pot_corners[midpt])), 10, (255, 0, 0), -1)  # blue dot
-                #cv.imwrite(f"corner added at {midpt}.png",img)
+                #draw circle on the finalized corner
+                cv.circle(annotated, tuple(map(int,pot_corners[midpt])), 10, (255, 0, 0), -1)  # blue dot
 
                 #   set start to i
                 corner_start = ind
@@ -149,8 +159,13 @@ dist {curr_dist}''')
         ind+=1
         print()
 
+    output_files.append(saveimg_cv("corners",annotated))
+
     # given corners, flatten and push frame to these 4 corners
-    # using perspective/affine transformations, https://math.stackexchange.com/questions/13404/mapping-irregular-quadrilateral-to-a-rectangle
+    # NOT IN USE: using perspective/affine transformations, https://math.stackexchange.com/questions/13404/mapping-irregular-quadrilateral-to-a-rectangle
+        #as detailed in the article, it is p much impossible to map an irregular polygon to a rectangle accurately
+        #the thing is that images being taken are of actual rectangles; its just that they might be warped
+        #thus it is sufficient to take the max of width and height based on computed side lengths of the polygon and resize the object image to that
 
     # find destination box
     corner_inds = list(corner_inds) #REMEMBER: ITEMS IN CORNERS ARE INDEXES OF POT_CORNERS
@@ -159,18 +174,13 @@ dist {curr_dist}''')
     corners = np.array(corners, dtype=np.float32)
     corners = order_corners(corners)
     if len(corners)!=4:
-        print("ERROR: LESS THAN 4 CORNERS WERE DETERMINED")
+        logging.info("ERROR: LESS THAN 4 CORNERS WERE DETERMINED")
         return None
     else:
         u = corners[1] - corners[0]
         v = corners[2] - corners[1]
         w = corners[3] - corners[2]
         a = corners[0] - corners[3]
-        print("u:", u)
-        print("v:", v)
-        print("w:", w)
-        print("a:", a)
-        print("corners:",corners)
         #use the formula - it yields an aspect ratio length:width for the resized rectangle
         #UPDATE: FORMULA NO WORK
         #ratio = (1/2)*(cross2d(u,v)+cross2d(w,a))/(np.linalg.norm(u)+np.linalg.norm(v)+np.linalg.norm(w)+np.linalg.norm(a))**2
@@ -178,7 +188,7 @@ dist {curr_dist}''')
         #width = length/ratio
         #print(ratio)
 
-        #compute destination coords
+        #compute destination size and mat
         length = max(np.linalg.norm(u),np.linalg.norm(w))
         width = max(np.linalg.norm(v),np.linalg.norm(a))
         dst = np.array([[0.0,0.0],[length,0.0],[length,width],[0.0,width]], dtype=np.float32)
@@ -187,12 +197,19 @@ dist {curr_dist}''')
         #get transformation
         M = cv.getPerspectiveTransform(corners, dst)
         img_resized = cv.warpPerspective(img,M,(int(length),int(width)))
-        cv.imshow("transformed", img_resized)
-        return img_resized
+        #cv.imshow("transformed", img_resized)
+        return img_resized, output_files
 
 def get_main_object(img):
-    edges = cv.Canny(img,50,100)
+    annotated = np.copy(img)
+    output_files = []
+
+    edges = cv.Canny(img,150,200)
+    output_files.append(saveimg_cv("edges",img))
+
     contours, _ = cv.findContours(edges.copy(), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    cv.drawContours(annotated,contours,-1,(0,255,0),2)
+    output_files.append(saveimg_cv("all_contours",annotated))
 
     pos_objs = []
     for c in contours:
