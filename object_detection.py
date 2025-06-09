@@ -204,7 +204,7 @@ def get_main_object(img):
     annotated = np.copy(img)
     output_files = []
 
-    edges = cv.Canny(img,150,200)
+    edges = cv.Canny(img,100,200)
     output_files.append(saveimg_cv("edges",edges))
 
     contours, _ = cv.findContours(edges.copy(), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
