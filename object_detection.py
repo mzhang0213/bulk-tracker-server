@@ -1,11 +1,12 @@
-import logging
+import os
+from datetime import datetime
 
 import cv2 as cv
 import numpy as np
 import matplotlib.pyplot as plt
 import pytesseract
 
-from utils import uprint
+from utils import uprint, UPLOAD_FOLDER
 from utils import udisp_img
 
 BLUE = "\033[34m"
@@ -44,13 +45,15 @@ def around(value, target, thresh):
     return target*(1 - thresh) <= value <= target*(1 + thresh)
 
 
+
 # processing of full image
 def mark_corners(img,contour):
     """
     Find possible points to be corners in the contour
+
     :param img: image with objects being marked
     :param contour: contour from image with corners being marked
-    :return: a list of potential corners, output files
+    :return: a list of potential corners, output files, annotated copy of img with lines drawn. list could be empty
     """
     output_files = []
 
@@ -61,15 +64,14 @@ def mark_corners(img,contour):
     marked = [0 for i in closed_pts]
 
     # compute markable corners along contour
+    annotated_lines = np.copy(img)
     for ind in range(2, len(closed_pts)+2):
         i = ind%len(closed_pts)
 
         # POINTS LABEL
         #cv.putText(img,str(closed_pts[i]),[closed_pts[i][0],closed_pts[i][1]+(30 if i%3==0 else (-30 if i%3==1 else 0))],cv.FONT_HERSHEY_PLAIN,1,(255,255,255))
         # DRAW COLORED LINES
-        annotated_lines = np.copy(img)
-        cv.line(img,closed_pts[i-1],closed_pts[i],(255 if i%3==0 else 0,255 if i%3==1 else 0,255 if i%3==2 else 0),3)
-        output_files.append(udisp_img(annotated_lines, "all_lines"))
+        cv.line(annotated_lines,closed_pts[i-1],closed_pts[i],(255 if i%3==0 else 0,255 if i%3==1 else 0,255 if i%3==2 else 0),3)
 
         angle = getAngle(closed_pts[i-2],closed_pts[i-1],closed_pts[i])
         # ANGLE READOUT DISPLAY
@@ -86,6 +88,9 @@ def mark_corners(img,contour):
             #mark the point center to the angle
             marked[i-1]=1
 
+    output_files.append(udisp_img(annotated_lines, "all_lines"))
+
+
     # points marked are in the middle of line segs, and
     # all points not marked are parts of corners
     # thus gather points NOT MARKED
@@ -95,21 +100,21 @@ def mark_corners(img,contour):
             pot_corners.append(closed_pts[i])
 
     #draw circle on the potential points
-    annotated_potcorners = np.copy(img)
     for i in range(len(pot_corners)):
         #cv.putText(img, str(pot_corners[i]), [pot_corners[i][0], pot_corners[i][1]+(30 if i%3==0 else (-30 if i%3==1 else 0))], cv.FONT_HERSHEY_PLAIN, 1, (255, 255, 255))
-        cv.circle(annotated_potcorners, tuple(map(int, pot_corners[i])), 10, (0, 255, 255), -1) #yellow dot
+        cv.circle(annotated_lines, tuple(map(int, pot_corners[i])), 10, (0, 255, 255), -1) #yellow dot, draw it on the img with lines
 
-    output_files.append(udisp_img(annotated_potcorners, "potential_corners"))
+    output_files.append(udisp_img(annotated_lines, "potential_corners"))
 
-    return pot_corners, output_files
+    return pot_corners, output_files, annotated_lines
 
 def find_corners(img, potential_corners):
     """
     Given potential corners, find groups and set the middle point in each group to be the designated point for that corner
+
     :param img: full image
     :param potential_corners: points that potentially have corners inside
-    :return: a list of corners representing final selected corners, output files
+    :return: a list of corners representing final selected corners, output files.
     """
     output_files = []
 
@@ -184,9 +189,10 @@ def find_corners(img, potential_corners):
 def cut_to_object(og_img, potential_corners, corner_indexes):
     """
     Given corners, flatten and push frame to these 4 corners
+
     :param og_img: full image
     :param potential_corners: the pool of all potential corners
-    :param corner_indexes: indices of the chosen corners
+    :param corner_indexes: exactly 4 indices of the chosen corners
     :return: an img as Mat that is cut to the new corners, output files
     """
     output_files = []
@@ -194,41 +200,40 @@ def cut_to_object(og_img, potential_corners, corner_indexes):
     # find destination box
     corner_indexes = sorted(list(corner_indexes)) #REMEMBER: ITEMS IN CORNERS ARE INDEXES OF POT_CORNERS
     corners = [potential_corners[i] for i in corner_indexes]
-    if len(corners)!=4:
-        uprint("ERROR: LESS THAN 4 CORNERS WERE DETERMINED")
-        return None
-    else:
-        corners = np.array(corners, dtype=np.float32)
-        corners = order_corners(corners)
-        uprint("corners are: " + " ".join([str(i) for i in corners]))
-        u = corners[1] - corners[0]
-        v = corners[2] - corners[1]
-        w = corners[3] - corners[2]
-        a = corners[0] - corners[3]
-        #use the formula - it yields an aspect ratio length:width for the resized rectangle
-        #UPDATE: FORMULA NO WORK
-        #ratio = (1/2)*(cross2d(u,v)+cross2d(w,a))/(np.linalg.norm(u)+np.linalg.norm(v)+np.linalg.norm(w)+np.linalg.norm(a))**2
-        #length = np.linalg.norm(u)
-        #width = length/ratio
-        #print(ratio)
+    corners = np.array(corners, dtype=np.float32)
+    corners = order_corners(corners)
+    uprint("corners are: " + " ".join([str(i) for i in corners]))
+    u = corners[1] - corners[0]
+    v = corners[2] - corners[1]
+    w = corners[3] - corners[2]
+    a = corners[0] - corners[3]
+    #use the formula - it yields an aspect ratio length:width for the resized rectangle
+    #UPDATE: FORMULA NO WORK
+    #ratio = (1/2)*(cross2d(u,v)+cross2d(w,a))/(np.linalg.norm(u)+np.linalg.norm(v)+np.linalg.norm(w)+np.linalg.norm(a))**2
+    #length = np.linalg.norm(u)
+    #width = length/ratio
+    #print(ratio)
 
-        #compute destination size and mat
-        length = max(np.linalg.norm(u),np.linalg.norm(w))
-        width = max(np.linalg.norm(v),np.linalg.norm(a))
-        dst = np.array([[0.0,0.0],[length,0.0],[length,width],[0.0,width]], dtype=np.float32)
+    #compute destination size and mat
+    length = max(np.linalg.norm(u),np.linalg.norm(w))
+    width = max(np.linalg.norm(v),np.linalg.norm(a))
+    dst = np.array([[0.0,0.0],[length,0.0],[length,width],[0.0,width]], dtype=np.float32)
 
-        #get transformation
-        M = cv.getPerspectiveTransform(corners, dst)
-        img_resized = cv.warpPerspective(og_img, M, (int(length), int(width)))
+    #get transformation
+    M = cv.getPerspectiveTransform(corners, dst)
+    img_resized = cv.warpPerspective(og_img, M, (int(length), int(width)))
 
-        output_files.append(udisp_img(img_resized, "cut_img"))
-        return img_resized, output_files
+    output_files.append(udisp_img(img_resized, "cut_img"))
+    return img_resized, output_files
+
 
 
 # processing for ocr optimization
+
 def get_ypos_lines(thresh_img):
     """
     Find all horizontal lines of the calorie label for segmentation
+
     :param thresh_img: img processed into a threshold version
     :return: list of y positions, output files
     """
@@ -242,6 +247,9 @@ def get_ypos_lines(thresh_img):
 
     lines = cv.HoughLines(edges,1,np.pi/180,200)
     values = set()
+    if lines is None:
+        #abort
+        return None, output_files
     for line in lines:
         rho,theta = line[0]
         a = np.cos(theta)
@@ -259,6 +267,7 @@ def get_ypos_lines(thresh_img):
             values.add(y2)
 
         cv.line(annotated,(x1,y1),(x2,y2),(0,0,255),3)
+
     output_files.append(udisp_img(annotated,"contour-lines"))
 
     #annotated = np.copy(thresh_img)
@@ -271,6 +280,7 @@ def get_ypos_lines(thresh_img):
 def get_cut_rows(img,line_positions):
     """
     Given y positions of the lines in a calorie label table, cut up the given image to get a box for each row of the calorie label
+
     :param img: processed, cut image
     :param line_positions: y positions of rows
     :return: cut up rows based on given y positions, output files
@@ -306,6 +316,7 @@ def get_cut_rows(img,line_positions):
 def process_img_to_thresh(img):
     """
     Given OG image, process it for ocr: scaling up, gray scale, denoise, adaptive threshold
+
     :param img: the resized image to the label that needs to be processed
     :return: processed image, output files
     """
@@ -331,7 +342,7 @@ def process_img_to_thresh(img):
     #_,otsuThresh = cv.threshold(denoise,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
     output_files.append(udisp_img(thresh,"processed_threshold"))
 
-    return thresh
+    return thresh, output_files
 
 
 
@@ -341,6 +352,8 @@ def process_img_to_thresh(img):
 def get_main_objects(img):
     """
     Given og main image, find objects that could be the label
+    returns None if there are no main objects detected
+
     :param img: og full image
     :return: contours that could be label, output files
     """
@@ -360,21 +373,23 @@ def get_main_objects(img):
     for c in contours:
         closed = cv.convexHull(c)
         closed_area = cv.contourArea(closed)
-        all_objs.append(closed)
-        all_objs_areas.append(closed_area)
         #for now, use 10e4; problems in future may arise where its necessary to access the top 5 or so biggest contours
         if closed_area > 1e4:
-            pos_objs.append(closed)
-
-    if len(pos_objs)==0:
-        uprint("WARN: no significantly large contours detected")
+            all_objs.append(closed)
+            all_objs_areas.append(closed_area)
+        #    pos_objs.append(closed)
+        #time.sleep(10/1000)
 
     #take the first 5 biggest objects instead
     annotated_final = np.copy(img)
     swaps=list(range(len(all_objs_areas)))
     swaps.sort(key=lambda ind: all_objs_areas[ind], reverse=True)
-    for i in range(5):
+    for i in range(min(5,len(all_objs))):
         pos_objs.append(all_objs[swaps[i]])
+
+    if len(pos_objs)==0:
+        uprint("ERROR: no significantly large contours detected")
+        return None, output_files
 
     cv.drawContours(annotated_final, pos_objs, -1, (0,255,0), 2)
     output_files.append(udisp_img(annotated_final,"major_object_contours"))
@@ -384,6 +399,8 @@ def get_main_objects(img):
 def get_valid_contours(img, possible_objs):
     """
     Process objects to find whether they are the actual label and have data able to be scanned
+    returns None if no valid contours are found
+
     :param img: og full image
     :param possible_objs: objects that could be label
     :return: contours that work to be final label, output files
@@ -392,35 +409,45 @@ def get_valid_contours(img, possible_objs):
 
     valid_contours = []
 
-    for ob in possible_objs:
-        #ob is a contour
+    for i in range(len(possible_objs)):
+        #possible_objs[i] is a contour
         uprint(f"{BLUE}finding potential corners{RESET}")
-        pot_corners, out_mark_corners = mark_corners(img,ob)
+        pot_corners, out_mark_corners, annotated_marked_corners = mark_corners(img,possible_objs[i])
         for outfile in out_mark_corners: output_files.append(outfile)
 
+        if len(pot_corners) == 0:
+            uprint("ERROR: no potential corners detected")
+            continue
+
         uprint(f"{BLUE}getting actual corners{RESET}")
-        corner_inds, out_find_corners = find_corners(img,pot_corners)
+        corner_inds, out_find_corners = find_corners(annotated_marked_corners,pot_corners)
         for outfile in out_find_corners: output_files.append(outfile)
         #uprint("corner indexes are: "+" ".join([str(i) for i in corner_inds]))
 
-        if corner_inds is None:
-            uprint("toast - no corners")
+        if len(corner_inds) != 4:
+            uprint("ERROR: insufficient actual corners detected: "+ " ".join([str(i) for i in corner_inds]))
+            continue
 
         uprint(f"{BLUE}cutting object{RESET}")
         final_img, out_cut_ob = cut_to_object(img, pot_corners, corner_inds)
         for outfile in out_cut_ob: output_files.append(outfile)
-        if final_img is None:
-            uprint("toast - no final image able to be cut to")
-        else:
-            valid_contours.append(final_img)
+
+        valid_contours.append(final_img)
 
         uprint("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n")
+        #time.sleep(10/1000)
+
+    if len(valid_contours)==0:
+        uprint("ERROR: no valid contours detected")
+        return None, output_files
 
     return valid_contours, output_files
 
 def scan_text(img):
     """
     Process img and extract nutrition information out using OCR
+    returns None if unable to segment image into rows
+
     :param img: cropped image >> label images
     :return: list of text detected every row of the label, output files
     """
@@ -431,30 +458,47 @@ def scan_text(img):
 
     # get horizontal lines
     line_pos, out_ypos_lines = get_ypos_lines(thresh)
-    rows, out_cut_rows = get_cut_rows(thresh,line_pos)
     for outfile in out_ypos_lines: output_files.append(outfile)
+    if line_pos is None:
+        uprint("ERROR: COMPLETE UTTER FAILURE IN DETECTING Y POSITIONS")
+        return None, output_files
+    elif len(line_pos) <= 1:
+        uprint("ERROR: INSUFFICIENT Y POSITIONS DETECTED: " + " ".join([str(i) for i in line_pos]))
+        return None, output_files
+
+    rows, out_cut_rows = get_cut_rows(thresh,line_pos)
     for outfile in out_cut_rows: output_files.append(outfile)
+    if len(rows) == 0:
+        uprint("ERROR: NO ROWS ABLE TO BE EXTRACTED (based off of y positions)")
+        return None, output_files
+
+    fig, ax = plt.subplots(len(rows),1,figsize=(10, len(rows) * 3))
 
     detected_text = []
     for i in range(len(rows)):
+        ax[i].axis("off")
+        if rows[i] is None or rows[i].size == 0:
+            uprint(f"ERROR: rows at {i} is empty")
+            ax[i].imshow([])
+            continue
+
         # fill in gaps by shaving back the whites with erosion
         kernel = np.ones((2,2),np.uint8)
         erode = cv.erode(rows[i],kernel,iterations = 1)
-        output_files.append(udisp_img(erode,"eroded_back_image"))
+        ax[i].imshow(cv.cvtColor(erode,cv.COLOR_GRAY2RGB))
 
         final = erode
         detected_text.append(pytesseract.image_to_string(final))
+        #time.sleep(10/1000)
+
+    rn = datetime.now().strftime("%Y%m%d_%H%M%S%f")
+    filename = f"scan-label_rows-{rn}.png"
+    plt.savefig(str(os.path.join(UPLOAD_FOLDER,filename)))
+    output_files.append({
+        "name":filename,
+        "scan_type":"label_rows"
+    })
 
     uprint("finished everything")
 
     return detected_text, output_files
-
-
-'''
-im = cv.imread("upload.png")
-
-cv.imshow("img",im)
-while 1:
-    if cv.waitKey(1) == ord("q"):
-        break
-'''

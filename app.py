@@ -6,12 +6,12 @@ import logging
 eventlet.monkey_patch()
 logging.basicConfig(level=logging.DEBUG)
 
-from flask import Flask, render_template, send_from_directory
+from flask import Flask, send_from_directory
 from flask import request
 from flask_socketio import SocketIO, emit
 
 from object_detection import get_main_objects, get_valid_contours, scan_text
-from utils import UPLOAD_FOLDER
+from utils import UPLOAD_FOLDER, uprint
 import numpy as np
 import cv2 as cv
 
@@ -73,20 +73,41 @@ def calorie_image_upload():
         t1 = cv.getTickCount() #for processing time
 
         f_file,text = "",""
-        pos_objs, out1 = get_main_objects(img)
-        for outfile in out1: output_files.append(outfile)
-        cv.drawContours(img, pos_objs, -1, (0,255,0), 2)
+        pos_objs, out_main_obj = get_main_objects(img)
+        for outfile in out_main_obj: output_files.append(outfile)
+        #cv.drawContours(img, pos_objs, -1, (0,255,0), 2)
+        uprint("\nfinished getting main objects\n")
 
-        #IN THE FUTURE make this so that the object with most process text (that isnt whitespace) is dominant in being the final processed image
-        #IN THE FUTURE also include columns scanned
+        if pos_objs is None:
+            socketio.emit("scan_result", {
+                "result": "Failed when obtaining main objects",
+                "files":output_files
+            })
+            return {"message":"Failed when obtaining main objects"}
+
         valid_contours, out_vcontours = get_valid_contours(img,pos_objs)
         for outfile in out_vcontours: output_files.append(outfile)
+        uprint("\nfinished getting valid contours\n")
+
+        if valid_contours is None:
+            socketio.emit("scan_result", {
+                "result": "Failed when obtaining valid contours",
+                "files":output_files
+            })
+            return {"message": "Failed when obtaining valid contours"}
+
+
         for vcont in valid_contours:
-            res,out2 = scan_text(vcont)
-            for outfile in out2: output_files.append(outfile)
+            res,out_scan_text = scan_text(vcont)
+            for outfile in out_scan_text: output_files.append(outfile)
+
+            if res is None: continue
+
             for line in res:
-                print(line)
-        print("elapsed: "+str((cv.getTickCount()-t1)/cv.getTickFrequency()))
+                uprint(line)
+                text+=line+"\n"
+
+        uprint("total elapsed: "+str((cv.getTickCount()-t1)/cv.getTickFrequency()))
 
         socketio.emit("scan_result", {
             "result": text,
@@ -94,6 +115,8 @@ def calorie_image_upload():
         })
         return {"message":text}
 
+        #IN THE FUTURE make this so that the object with most process text (that isnt whitespace) is dominant in being the final processed image
+        #IN THE FUTURE also include columns scanned
 
 
 

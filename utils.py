@@ -7,14 +7,14 @@ eventlet.monkey_patch()
 logging.basicConfig(level=logging.DEBUG)
 
 import cv2 as cv
-import pytesseract
 import matplotlib.pyplot as plt
 
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+#UPLOAD_FOLDER = os.path.join(os.getcwd(), 'resources', "testing")
 
 def saveimg_cv(scan_type, img):
-    rn = datetime.now().strftime("%Y%m%d_%H%M%S")
+    rn = datetime.now().strftime("%Y%m%d_%H%M%S%f")
     filename = f"scan-{scan_type}-{rn}.png"
     cv.imwrite(str(os.path.join(UPLOAD_FOLDER,filename)), img)
     return filename
