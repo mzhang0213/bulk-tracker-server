@@ -1,0 +1,87 @@
+{
+  "family": "bulk-landing-server",
+  "containerDefinitions": [
+    {
+      "name": "server",
+      "image": "953476054290.dkr.ecr.us-east-2.amazonaws.com/bulk/server",
+      "cpu": 0,
+      "portMappings": [
+        {
+          "containerPort": 3009,
+          "hostPort": 3009,
+          "protocol": "tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "FRONTEND_URL",
+          "value": "https://bulk.mzhang.dev,http://localhost:3008"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "POSTGRES_ENDPOINT",
+          "valueFrom": "arn:aws:secretsmanager:us-east-2:953476054290:secret:prod/bulk_landing/postgres-Y4hP7s:host::"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "valueFrom": "arn:aws:secretsmanager:us-east-2:953476054290:secret:prod/bulk_landing/postgres-Y4hP7s:username::"
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-2:953476054290:secret:prod/bulk_landing/postgres-Y4hP7s:password::"
+        },
+        {
+          "name": "POSTGRES_DB",
+          "valueFrom": "arn:aws:secretsmanager:us-east-2:953476054290:secret:prod/bulk_landing/postgres-Y4hP7s:engine::"
+        },
+        {
+          "name": "POSTGRES_PORT",
+          "valueFrom": "arn:aws:secretsmanager:us-east-2:953476054290:secret:prod/bulk_landing/postgres-Y4hP7s:port::"
+        }
+      ],
+      "environmentFiles": [],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "ulimits": [],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/bulk-landing-server",
+          "awslogs-region": "us-east-2",
+          "awslogs-stream-prefix": "server"
+        },
+        "secretOptions": []
+      },
+      "systemControls": [],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:3009/health >> /proc/1/fd/1 2>&1  || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 5
+      }
+    }
+  ],
+  "taskRoleArn": "arn:aws:iam::953476054290:role/ecsTaskRole",
+  "executionRoleArn": "arn:aws:iam::953476054290:role/ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "volumes": [],
+  "placementConstraints": [],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "cpuArchitecture": "ARM64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "enableFaultInjection": false
+}
